@@ -1,0 +1,232 @@
+---
+title: "First draft RR1"
+format: 
+  html:
+    self_contained: true
+    toc: true
+    toc-depth: 2
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+editor: visual
+author: Ouissal Akioui
+---
+
+## Introduction
+
+The analysis presented in this paper relies on the **Moroccan News Articles Dataset (MNAD)**, a large-scale corpus of Arabic news articles collected from major Moroccan online news outlets. The MNAD corpus was introduced to address the scarcity of large, high-quality resources for Arabic text analysis and news categorization, and contains more than 418,000 articles distributed across 19 thematic categories. Each article is structured around three main textual fields: the title, the article body, and an associated category label, making the dataset particularly suitable for exploratory and descriptive text analysis.
+
+The MNAD corpus aggregates content from four Moroccan news websites—Akhbarona, Hespress, Hibapress, and Le360—each exhibiting distinct editorial practices and publication styles. In order to reduce heterogeneity related to source-specific writing conventions and to ensure greater internal consistency, the present study focuses exclusively on the **Hespress** subset of the dataset. Hespress represents the largest single-source component of the MNAD corpus and offers a rich and diverse collection of news articles across multiple categories.
+
+Within the Hespress subset, the analysis is further restricted to the **Culture** category. This choice is motivated by the objective of conducting a focused examination of cultural news content while maintaining a manageable analytical scope. Prior work on the MNAD corpus highlights substantial variation across categories in terms of lexical composition and structural properties, suggesting that category-specific analyses are methodologically appropriate. Accordingly, this study adopts a category-centered approach, using descriptive text statistics to characterize cultural news articles and to explore their distinctive features within the broader Hespress corpus.
+
+Given the unstructured nature of the textual data, the analysis proceeds by first transforming raw text into basic quantitative features capturing article length, structural properties, and lexical usage. Descriptive statistics are then employed to situate cultural articles within the overall distribution of categories and to motivate the formulation of exploratory hypotheses.
+
+Given the unstructured nature of the corpus, the analysis proceeds by first transforming textual data into basic quantitative features capturing length, structure, and lexical usage. Descriptive statistics are then used to characterize the corpus and examine systematic differences across the newspaper articles. Based on these features, exploratory hypotheses are formulated regarding variations in textual structure and vocabulary.
+
+## Descriptive Analyses
+
+### Choice of Category
+
+```{r}
+rm(list=ls()) #This line of code cleans the environment
+
+# Load libraries (or packages):
+library(tidyverse) 
+library(dplyr)
+
+#Load the dataset:
+hespress <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Hespress.ma.csv")
+View(hespress)
+```
+
+Although the analysis focuses on the **Culture** category in the Hespress articles, we first examine the distribution of all categories in the dataset in order to situate cultural coverage within the broader corpus.\
+
+```{r}
+library(dplyr)
+library(knitr)
+library(ggplot2)
+
+category_share <- hespress %>%
+  count(Category) %>%                       # count rows per category
+  mutate(
+    percentage = n / sum(n) * 100            # convert to %
+  ) %>%
+  arrange(desc(percentage))                  # optional: sort biggest first
+
+kable(category_share)
+
+ggplot(category_share, aes(x = reorder(Category, -percentage),
+                            y = percentage,
+                            fill = Category)) +
+  geom_col() +
+  scale_fill_viridis_d(option = "C", end = 0.9) +
+  labs(
+    title = "Distribution of Article Categories in the Hespress Corpus",
+    x = "Category",
+    y = "Percentage of Articles"
+  ) +
+  theme_minimal() +
+  guides(fill = "none")
+
+
+```
+
+The category distribution reveals a strong dominance of news related to **World**, **Regions**, and **Society**, which together account for a substantial share of published articles. In contrast, cultural content represents a more limited but non-negligible portion of the corpus, accounting for approximately 5.1% of all articles. This uneven distribution highlights the prominence of hard news topics in Hespress while also supporting its selection as a focused case for examining the structural and lexical characteristics of cultural journalism.
+
+```{r}
+
+library(dplyr)
+library(stringr)
+
+hespress_culture <- hespress %>%
+  mutate(Category = str_trim(Category)) %>%   # removes accidental spaces
+  filter(Category == "Culture")
+
+View(hespress_culture)
+```
+
+### Basic structure stats
+
+```{r}
+library(dplyr)
+
+hespress_culture <- hespress %>%
+  mutate(
+    doc_id = row_number(), #creating a row index (organizing label).
+    title_words = str_count(Title, "\\S+"), #number of words in the title
+    body_words  = str_count(Body, "\\S+") #number of words in the body
+  )
+
+summary(select(hespress_culture, title_words, body_words)) #basic stats of title and article length
+```
+
+Overall, the dataset is clean and behaves like real news data. Most titles are about 8 words long. Most articles are around 200–300 words, but a few are much longer. This matters because article length varies substantially: in topic modeling, longer texts can disproportionately influence topic estimation, while for sentiment analysis, extremely short or very long articles may introduce noise or bias if not handled carefully.
+
+```{r}
+hespress_culture %>%
+  pivot_longer(c(title_words, body_words),
+               names_to = "text_part",
+               values_to = "word_count") %>%
+  ggplot(aes(x = text_part, y = word_count)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  scale_y_log10() +
+  labs(
+    title = "Distribution of Word Counts in Titles and Article Bodies",
+    x = "Text component",
+    y = "Word count (log scale)"
+  ) +
+  theme_minimal()
+```
+
+### Arabic normalisation
+
+```{r}
+#We standardize spelling so frequency counts aren’t noisy.
+
+normalize_ar <- function(x) {
+  x %>%
+    str_replace_all("[\\u064B-\\u0652\\u0670]", "") %>%
+    str_replace_all("\\u0640", "") %>%
+    str_replace_all("[إأآا]", "ا") %>%
+    str_replace_all("ى", "ي") %>%
+    str_replace_all("[^\\p{Arabic}\\s]", " ") %>%
+    str_squish()
+}
+
+hespress_culture <- hespress_culture %>%
+  mutate(
+    title_norm = normalize_ar(Title),
+    body_norm  = normalize_ar(Body)
+  )
+```
+
+### Tokenization and stopwords removal
+
+Bodies contain the **substantive cultural content**, so we focus vocabulary analysis there. Tokenization converts each document into **tokens** (words).
+
+```{r}
+library(quanteda)
+library(quanteda.textstats)
+library(stopwords)
+quanteda_options(threads = 2)
+library(dplyr)
+
+# 1. Create corpus (BODY)
+corp_body <- corpus(
+  hespress_culture,
+  docid_field = "doc_id",
+  text_field  = "body_norm"
+)
+
+# 2. Tokenization
+toks_body <- tokens(
+  corp_body,
+  remove_punct   = TRUE,
+  remove_numbers = TRUE,
+  remove_symbols = TRUE
+)
+
+# 3. Remove Arabic stopwords (built-in)
+toks_body <- tokens_remove(toks_body, stopwords(language = "ar", source = "misc"))
+
+# 4. Remove short tokens
+toks_body <- tokens_keep(toks_body, min_nchar = 2)
+
+# 5. Create DFM
+dfm_body <- dfm(toks_body)
+
+# 6. Automatic cleaning (quanteda-style)
+dfm_body <- dfm_trim(
+  dfm_body,
+  max_docfreq = 0.8, docfreq_type = "prop",  # remove too-common words
+  min_termfreq = 5                           # remove very rare noise
+)
+
+# 7. Top words
+top_words <- textstat_frequency(dfm_body)
+head(top_words, 20)
+
+```
+
+```{r}
+
+library(tidytext)
+library(tidyr)
+
+tokens_body <- hespress_culture %>%
+  select(doc_id, body_norm) %>%
+  unnest_tokens(word, body_norm, token = "words")
+
+tokens_title <- hespress_culture %>%
+  select(doc_id, title_norm) %>%
+  unnest_tokens(word, title_norm, token = "words")
+
+```
+
+At this stage, word frequencies are largely dominated by common filler words, which do not carry substantive meaning and therefore need to be removed through further text preprocessing.
+
+```{r}
+#Basic word frequency
+top_words <- tokens_body %>%
+  count(word, sort = TRUE)
+
+top_words %>% slice_head(n = 20)
+
+```
+
+```{r}
+library(stopwords)
+
+arabic_sw <- stopwords("ar")
+
+tokens_body_clean <- tokens_body %>%
+  filter(!word %in% arabic_sw, str_length(word) >= 2)
+
+tokens_body_clean %>%
+  count(word, sort = TRUE) %>%
+  slice_head(n = 20)
+
+```
