@@ -1,0 +1,502 @@
+---
+title: "First draft RR1"
+format: 
+  html:
+    self_contained: true
+    toc: true
+    toc-depth: 2
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+editor: visual
+author: Ouissal Akioui
+---
+
+## Introduction
+
+The analysis presented in this paper relies on the Moroccan News Articles Dataset (MNAD), a large-scale corpus of Arabic news articles collected from major Moroccan online news outlets. The MNAD corpus was introduced to address the scarcity of high-quality, large-scale resources for Arabic text analysis and news categorization. It contains more than 418,000 articles distributed across 19 thematic categories. Each article is structured around three core elements: a title, a body of text, and a category label. This structure makes the dataset particularly well suited for text-as-data approaches that aim to compare discursive patterns across sources while maintaining a consistent unit of analysis at the article level.
+
+The MNAD corpus aggregates content from four Moroccan online news outlets—Akhbarona, Hespress, Hibapress, and Le360—each of which exhibits distinct editorial practices, publication styles, and degrees of institutional proximity. While these outlets operate within the same national media environment, they differ in tone, framing, and communicative conventions, making them a relevant case for comparative analysis of media discourse.
+
+Given the thematic diversity of the dataset, this study deliberately restricts the analysis to articles classified under the *Culture* category. This choice is methodological rather than substantive. News categories such as politics, economics, or sports are associated with structurally different emotional registers and rhetorical constraints, which would confound comparisons of tone across sources. Focusing on cultural coverage allows the analysis to hold the topic of discussion relatively constant, thereby isolating variation in sentiment that is more plausibly attributable to editorial and discursive choices rather than to differences in subject matter.
+
+To move beyond descriptive statistics, the analysis adopts a text-as-data framework in which sentiment analysis is used as a measurement tool rather than as an explanatory model. Sentiment scores are computed at the article level, transforming textual content into continuous numerical variables that capture the overall emotional tone of both titles and article bodies. These sentiment measures are then used as dependent variables in statistical models designed to examine systematic differences across news sources.
+
+Rather than claiming to directly measure “state discourse,” the analysis treats sentiment tone as a proxy for broader discursive patterns commonly associated with institutional communication, such as emotional restraint, neutrality, or formalization. This approach allows for a cautious and analytically grounded examination of how institutional positioning may shape media tone, without conflating sentiment with intent or ideology.
+
+In addition to overall sentiment, the study also considers the relationship between title sentiment and body sentiment. Headlines play a central role in framing and audience engagement, and differences between title and body tone may reflect distinct editorial strategies. Comparing this gap across sources provides further insight into how emotional emphasis is distributed within articles.
+
+Based on this analytical framework, the study advances the following hypotheses:
+
+**H1 — Source Differences in Sentiment**\
+Within the *Culture* category, the average sentiment of news articles differs across news sources.\
+This hypothesis tests whether Moroccan news outlets exhibit distinct tonal profiles in cultural reporting, reflecting differences in editorial style and communicative norms.
+
+**H2 — Institutional Tone Hypothesis**\
+News sources that are more institutionally aligned are expected to display more neutral sentiment in cultural articles compared to less institutionally aligned sources.\
+The rationale is that institutionally proximate outlets tend to favor emotionally restrained discourse, even outside explicitly political domains.
+
+**H3 — Editorial Framing Hypothesis**\
+The difference between title sentiment and body sentiment varies across news sources.\
+This hypothesis captures variation in framing strategies, where some outlets may rely on more emotionally charged headlines relative to article content, while others maintain greater tonal consistency.
+
+Together, these hypotheses provide a structured and parsimonious framework for examining discursive variation in Moroccan online news media, using sentiment analysis as a bridge between textual data and statistical inference.
+
+## Descriptive Analyses
+
+### Choice of Category
+
+```{r}
+rm(list=ls()) #This line of code cleans the environment
+
+# Load libraries (or packages):
+library(tidyverse) 
+library(dplyr)
+
+#Load the datasets:
+hespress <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Hespress.ma.csv")
+akhbarona <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Akhbarona.ma.csv")
+
+hibapress <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Hibapress.com.csv")
+
+le360 <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Le360.com.csv")
+```
+
+\*Although the analysis focuses on the **Culture** category in the Hespress articles, we first examine the distribution of all categories in the dataset in order to situate cultural coverage within the broader corpus.\
+
+```{r}
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(purrr)
+
+datasets <- list(
+  hespress  = hespress,
+  hibapress  = hibapress,
+  akhbarona  = akhbarona,
+  le360  = le360
+)
+
+
+category_shares <- map(
+  datasets,
+  ~ .x %>%
+    count(Category) %>%
+    mutate(percentage = n / sum(n) * 100) %>%
+    arrange(desc(percentage))
+)
+
+```
+
+```{r}
+library(dplyr)
+library(knitr)
+library(ggplot2)
+
+category_share <- hespress %>%
+  count(Category) %>%                       # count rows per category
+  mutate(
+    percentage = n / sum(n) * 100            # convert to %
+  ) %>%
+  arrange(desc(percentage))                  # optional: sort biggest first
+
+kable(category_share)
+
+ggplot(category_share, aes(x = reorder(Category, -percentage),
+                            y = percentage,
+                            fill = Category)) +
+  geom_col() +
+  scale_fill_viridis_d(option = "C", end = 0.9) +
+  labs(
+    title = "Distribution of Article Categories in the Hespress Corpus",
+    x = "Category",
+    y = "Percentage of Articles"
+  ) +
+  theme_minimal() +
+  guides(fill = "none")
+
+
+```
+
+The category distribution reveals a strong dominance of news related to **World**, **Regions**, and **Society**, which together account for a substantial share of published articles. In contrast, cultural content represents a more limited but non-negligible portion of the corpus, accounting for approximately 5.1% of all articles. This uneven distribution highlights the prominence of hard news topics in Hespress while also supporting its selection as a focused case for examining the structural and lexical characteristics of cultural journalism.
+
+```{r}
+
+library(dplyr)
+library(stringr)
+
+hespress_Culture <- hespress %>%
+  mutate(Category = str_trim(Category)) %>%   # removes accidental spaces
+  filter(Category == "Culture")
+
+View(hespress_Culture)
+```
+
+### Basic structure stats
+
+```{r}
+library(dplyr)
+
+hespress_Culture <- hespress_Culture %>%
+  mutate(
+    doc_id = row_number(), #creating a row index (organizing label).
+    title_words = str_count(Title, "\\S+"), #number of words in the title
+    body_words  = str_count(Body, "\\S+") #number of words in the body
+  )
+
+summary(select(hespress_Culture, title_words, body_words)) #basic stats of title and article length
+```
+
+Overall, the dataset is clean and behaves like real news data. Most titles are about 8 words long. Most articles are around 200–300 words, but a few are much longer. This matters because article length varies substantially: in topic modeling, longer texts can disproportionately influence topic estimation, while for sentiment analysis, extremely short or very long articles may introduce noise or bias if not handled carefully.
+
+```{r}
+hespress_Culture %>%
+  pivot_longer(c(title_words, body_words),
+               names_to = "text_part",
+               values_to = "word_count") %>%
+  ggplot(aes(x = text_part, y = word_count)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  scale_y_log10() +
+  labs(
+    title = "Distribution of Word Counts in Titles and Article Bodies",
+    x = "Text component",
+    y = "Word count (log scale)"
+  ) +
+  theme_minimal()
+```
+
+### Arabic normalisation
+
+```{r}
+#We standardize spelling so frequency counts aren’t noisy.
+
+normalize_ar <- function(x) {
+  x %>%
+    str_replace_all("[\\u064B-\\u0652\\u0670]", "") %>%
+    str_replace_all("\\u0640", "") %>%
+    str_replace_all("[إأآا]", "ا") %>%
+    str_replace_all("ى", "ي") %>%
+    str_replace_all("[^\\p{Arabic}\\s]", " ") %>%
+    str_squish()
+}
+
+hespress_Culture <- hespress_Culture %>%
+  mutate(
+    title_norm = normalize_ar(Title),
+    body_norm  = normalize_ar(Body)
+  )
+```
+
+### Tokenization and stopwords removal
+
+Bodies contain the **substantive cultural content**, so we focus vocabulary analysis there. Tokenization converts each document into **tokens** (words).
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tidytext)
+
+tokens_body <- hespress_Culture %>%
+  select(doc_id, Body) %>%
+  unnest_tokens(
+    output   = word,
+    input    = Body,
+    token    = "words",
+    to_lower = FALSE
+  )
+
+tokens_title <- hespress_Culture %>%
+  select(doc_id, Title) %>%
+  unnest_tokens(
+    output   = word,
+    input    = Title,
+    token    = "words",
+    to_lower = FALSE
+  )
+
+```
+
+At this stage, word frequencies are largely dominated by common filler words, which do not carry substantive meaning and therefore need to be removed through further text preprocessing.
+
+```{r}
+#Basic word frequency
+top_words <- tokens_body %>%
+  count(word, sort = TRUE)
+
+top_words %>% slice_head(n = 20)
+
+```
+
+Initial code to remove stopwords. We can see that not all of them are removed. We will be manually including some arabic stopwords as a consequence.
+
+```{r}
+library(stopwords)
+
+arabic_sw <- stopwords(language = "ar", source = "misc")
+
+manual_sw <- c(
+  "عبد",
+  "عبر",
+  "علي",
+  "الي",
+  "وذلك",
+  "المائة",
+  "ذاته",
+  "فيما",
+  "اخري",
+  "اذ",
+  "حتي",
+  "داخل"
+)
+
+# combine with existing Arabic stopwords
+all_sw <- unique(c(arabic_sw, manual_sw))
+
+# apply cleaning (no re-tokenizing)
+tokens_title_clean <- tokens_title %>%
+  filter(
+    !word %in% all_sw,
+    str_length(word) >= 2
+  )
+
+# check top words
+tokens_title_clean %>%
+  count(word, sort = TRUE) %>%
+  slice_head(n = 20)
+```
+
+### N-grams (bigrams) for “Culture topics” feel
+
+#### Analytical objective
+
+To move beyond single-word frequencies and capture more meaningful expressions in cultural reporting, a bigram (two-word sequence) analysis was planned. N-grams allow the identification of recurring phrases that are characteristic of cultural journalism, such as references to festivals, artistic events, heritage, or institutional actors. This analysis was intended to highlight dominant cultural themes that may not be visible through unigram frequencies alone.
+
+```{r}
+library(tidytext)
+library(tidyverse)
+library(dplyr)
+
+bigrams <- hespress_Culture %>%
+  select(doc_id, body_norm) %>%
+  unnest_tokens(bigram, body_norm, token = "ngrams", n = 2) %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ") %>%
+  filter(
+    !word1 %in% arabic_sw,
+    !word2 %in% arabic_sw,
+    str_length(word1) > 1,
+    str_length(word2) > 1
+  ) %>%
+  unite(bigram, word1, word2, sep = " ")
+
+bigram_freq <- bigrams %>%
+  count(bigram, sort = TRUE) %>%
+  slice_head(n = 20)
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+bigram_freq %>%
+  ggplot(aes(x = reorder(bigram, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top 20 bigrams (Culture)",
+    x = NULL,
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+library(tidytext)
+library(dplyr)
+library(tidyr)
+
+bigram_edges <- hespress_Culture %>%
+  unnest_tokens(bigram, body_norm, token = "ngrams", n = 2) %>%
+  separate(bigram, into = c("word1", "word2"), sep = " ") %>%
+  filter(
+    !word1 %in% arabic_sw,
+    !word2 %in% arabic_sw,
+    stringr::str_length(word1) > 1,
+    stringr::str_length(word2) > 1
+  ) %>%
+  count(word1, word2, sort = TRUE) %>%
+  slice_head(n = 30)
+
+```
+
+```{r}
+library(igraph)
+library(ggraph)
+
+g <- graph_from_data_frame(bigram_edges)
+
+ggraph(g, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE) +
+  geom_node_point(size = 4) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 4) +
+  theme_void() +
+  labs(title = "Bigram network (top 30)")
+
+```
+
+#### Expected results
+
+The expected output was a ranked list of the most frequent bigrams appearing in cultural articles. These bigrams were expected to reflect: cultural events (e.g. festivals, concerts, exhibitions), artistic domains (cinema, music, theatre), references to heritage and identity.
+
+Such patterns would provide a more interpretable summary of cultural discourse than isolated word counts.
+
+#### Technical issues encountered
+
+This analysis proved computationally demanding due to the size of the corpus and the combinatorial growth of bigram tokens. Tokenization into n-grams significantly increased memory usage and processing time in the Quarto environment, leading to execution interruptions and unstable rendering. As a result, the bigram analysis could not be reliably completed within the available computational constraints.
+
+### **TF–IDF**
+
+### (distinctive cultural vocabulary). This highlights **what differentiates** cultural articles internally.
+
+```{r}
+library(tidytext)
+
+tfidf <- tokens_body %>%
+  count(doc_id, word, sort = TRUE) %>%
+  bind_tf_idf(word, doc_id, n) %>%
+  arrange(desc(tf_idf))
+
+top_tfidf <- tfidf %>% slice_head(n = 20)
+top_tfidf
+
+library(ggplot2)
+
+ggplot(top_tfidf, aes(x = reorder(word, tf_idf), y = tf_idf)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top TF–IDF terms (Hespress – Culture)",
+    x = NULL,
+    y = "TF–IDF score"
+  ) +
+  theme_minimal()
+
+```
+
+### Lexical diversity
+
+Shows how repetitive vs varied the vocabulary is.
+
+The type–token ratio (TTR) is **0.012**, meaning that only about **1.2%** of all word tokens are unique. This indicates **very low lexical diversity** and a **highly repetitive vocabulary** in the corpus. In practical terms, a small set of words is reused many times, which is common in large news corpora and especially in thematic sections like Culture where recurring terms, names, and formulaic expressions appear frequently.
+
+It’s also important to note that **TTR decreases mechanically with corpus size**. With more than **42 million tokens**, this low value is expected and should not be interpreted as “poor language quality.” Instead, it reflects **standard repetition effects in very large datasets**.
+
+```{r}
+
+lex_div <- tokens_body %>%
+  summarise(
+    total_words = n(),
+    unique_words = n_distinct(word),
+    type_token_ratio = unique_words / total_words
+  )
+
+kable(lex_div, digits = 3)
+
+```
+
+### Lexicon- based Sentiment Analysis
+
+#### Analytical objective
+
+A lexicon-based sentiment analysis was planned to examine the overall tone of cultural news coverage. Sentiment scores were to be calculated at the article level in order to assess whether cultural reporting tends to be predominantly positive, negative, or neutral. This approach was chosen for its transparency and interpretability in an exploratory setting.
+
+We're gonna be using a **translated NRC lexicon.**
+
+```{r}
+library(textdata) 
+library(tidytext)
+
+sent_lex <- get_sentiments("nrc") %>% filter(sentiment %in% c("positive", "negative"))
+
+sentiment_article <- tokens_body %>%
+  inner_join(sent_lex, by = "word") %>%
+  count(doc_id, sentiment) %>%
+  pivot_wider(
+    names_from = sentiment,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  mutate(
+    sentiment_score = positive - negative
+  )
+```
+
+```{r}
+#Plot: overall sentiment distribution 
+library(ggplot2)
+ggplot(Culture_sent, aes(x = sentiment_score)) +
+  geom_histogram(bins = 40) +
+  labs(
+    title = "Distribution of Sentiment Scores in Cultural Articles",
+    x = "Sentiment score (positive − negative)",
+    y = "Number of articles"
+  ) +
+  theme_minimal()
+
+```
+
+The sentiment scores were then intended to be merged back to the document level and categorized into positive, neutral, and negative articles.
+
+#### Expected results
+
+The sentiment distribution was expected to show that most cultural articles exhibit a neutral to mildly positive tone, reflecting informative or promotional cultural reporting rather than highly polarized discourse. Negative sentiment was expected to be more prevalent in articles addressing cultural controversies, disputes, or restrictions.
+
+#### Technical issues encountered
+
+The implementation of sentiment analysis was limited by the availability of Arabic sentiment resources. The NRC sentiment lexicon requires the installation of the `textdata` package, which could not be reliably installed or accessed within the execution environment. Moreover, the NRC lexicon is not Arabic-native, requiring translation or approximation, which further complicated execution under time constraints. Same computational problems as before as well.
+
+### Sentiment variation across cultural sub-themes
+
+#### Analytical objective
+
+To explore internal variation within the Culture category, sentiment scores were planned to be linked to broad cultural sub-themes identified through keyword matching (e.g. festivals, heritage, controversy). This approach aimed to assess whether different types of cultural content are associated with systematically different emotional tones.
+
+```{r}
+Culture_sent <- Culture %>%
+  mutate(
+    theme = case_when(
+      str_detect(body_norm, "مهرجان|موسيقى|سينما") ~ "Festivals",
+      str_detect(body_norm, "تراث|تاريخ|هوية") ~ "Heritage",
+      str_detect(body_norm, "جدل|منع|انتقاد") ~ "Controversy",
+      TRUE ~ "Other"
+    )
+  )
+#i would probably have to add more contextual words here.. but normally i would do it au fur et à mesure as i get my results and tweak my code.
+```
+
+### Operationalisation of the hypothesis
+
+### Hypothesis 1
+
+> Cultural articles published by **institutionally aligned news outlets** display **lower sentiment intensity** (i.e. closer to neutral) than those published by **less institutionally aligned outlets**.
+
+### Variables
+
+-   **DV**: Sentiment intensity of article\
+    → absolute sentiment score (distance from neutral)
+
+-   **IV**: Institutional alignment of source\
+    → binary (Aligned vs Less aligned)
+
+-   **Unit of analysis**: Articles
+
+-   **Sample**: Cultural articles only from the Hespress dataset
+
+### Defining institutional alignment
+
+```{r}
+
+```
