@@ -9,5 +9,5 @@ This is an incomplete draft including as off the first push, it includes intro, 
 I'm super struggling with the tokenization on this one. instead of going for the regular way (tidytext and vector for things it didnt account for in arabic) I instead used a new package quandeta and it's not looking good it needs a lot of pre installed stuff
 
 ## Status Push 2
-
+hello
 ## Status Push 3
