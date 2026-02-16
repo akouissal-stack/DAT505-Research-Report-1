@@ -39,10 +39,6 @@ The rationale is that institutionally proximate outlets tend to favor emotionall
 Within the *Culture* category, the average sentiment of news articles differs across news sources.\
 This hypothesis tests whether Moroccan news outlets exhibit distinct tonal profiles in cultural reporting, reflecting differences in editorial style and communicative norms.
 
-**H3 — Editorial Framing Hypothesis**\
-The difference between title sentiment and body sentiment varies across news sources.\
-This hypothesis captures variation in framing strategies, where some outlets may rely on more emotionally charged headlines relative to article content, while others maintain greater tonal consistency.
-
 ## Hypothesis 1
 
 ### Descriptive Analyses
@@ -184,7 +180,7 @@ knitr::kable(bigram_freq, col.names = c("Bigram", "Frequency"))
 
 The most frequent bigrams in *Hespress* culture articles are overwhelmingly **institutional, national, and formal**.
 
-The most frequent bigrams in Hespress culture articles are dominated by institutional and national references, such as “وزارة الثقافة” (906), “محمد السادس” (845), and “وزير الثقافة” (513), as well as formal journalistic constructions like “تصريح لهسبريس” (753). Cultural coverage is thus framed primarily around official actors, state institutions, and nationally symbolic figures and events. This institutionalized framing helps explain the predominantly neutral sentiment observed in the analysis, as such language prioritizes informational and legitimizing discourse over affective or personal expression.
+The most frequent bigrams in Hespress culture articles are dominated by institutional and national references, such as “وزارة الثقافة” (906), “محمد السادس” (845), and “وزير الثقافة” (513), as well as formal journalistic constructions like “تصريح لهسبريس” (753). Cultural coverage is thus framed primarily around official actors, state institutions, and nationally symbolic figures and events.
 
 ```{r}
 library(ggplot2)
@@ -219,7 +215,81 @@ bigram_edges
 
 ```
 
-The bigram network of culture articles reveals a fragmented structure organized around institutional actors, national identifiers, and formal cultural sectors rather than affective or experiential language. Clusters centered on state institutions, official figures, and organized cultural production dominate the network, while no emotionally charged hub emerges. This structure helps explain the predominantly neutral sentiment observed in institutionalized cultural coverage, suggesting that sentiment patterns reflect the administrative and informational framing of culture rather than emotional engagement.
+The bigram network of culture articles reveals a fragmented structure organized around institutional actors, national identifiers, and formal cultural sectors rather than affective or experiential language. Clusters centered on state institutions, official figures, and organized cultural production dominate the network, while no emotionally charged hub emerges.
+
+```{r}
+library(ggplot2)
+ggplot(bigram_edges,
+       aes(x = word1, y = word2, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(
+    low = "#fee090",
+    high = "#d73027"
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Bigram Co-occurrence Heatmap",
+    x = "First word",
+    y = "Second word",
+    fill = "Count"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+
+```{r}
+library(dplyr)
+library(igraph)
+
+# ---- TUNING KNOBS (change these if needed) ----
+TOP_EDGES   <- 20   # try 15–25
+MIN_N       <- 2    # keep edges with count >= this
+LABEL_TOP_N <- 12   # number of nodes to label
+
+# 1) filter edges to reduce clutter
+edges_plot <- bigram_edges %>%
+  filter(n >= MIN_N) %>%
+  slice_max(n, n = TOP_EDGES, with_ties = FALSE)
+
+# 2) build graph (UNDIRECTED for readability)
+g <- graph_from_data_frame(edges_plot, directed = FALSE)
+E(g)$weight <- edges_plot$n
+
+# 3) sizes / widths
+s <- strength(g, mode = "all", weights = E(g)$weight)
+V(g)$size  <- 8 + 18 * (s / max(s))
+
+w <- E(g)$weight
+E(g)$width <- 1 + 6 * (w / max(w))
+
+# 4) colors (edge color by weight gradient)
+edge_pal <- colorRampPalette(c("#9ecae1", "#fdae61", "#de2d26"))
+E(g)$color <- edge_pal(100)[cut(w, breaks = 100, include.lowest = TRUE)]
+
+V(g)$color <- "#2b8cbe"
+V(g)$frame.color <- "white"
+
+# 5) label ONLY the most important nodes
+top_nodes <- names(sort(s, decreasing = TRUE))[seq_len(min(LABEL_TOP_N, length(s)))]
+V(g)$label <- ifelse(V(g)$name %in% top_nodes, V(g)$name, NA)
+V(g)$label.cex <- 1.1
+V(g)$label.color <- "black"
+V(g)$label.dist <- 0.8
+
+# 6) layout (more iterations = less overlap)
+set.seed(123)
+L <- layout_with_fr(g, niter = 2000)
+
+par(mar = c(0, 0, 2, 0))
+plot(
+  g,
+  layout = L,
+  edge.curved = 0.15,
+  main = paste0("Bigram Network (Top ", TOP_EDGES, ", n≥", MIN_N, ")")
+)
+```
 
 #### TF–IDF
 
@@ -241,15 +311,18 @@ top_tfidf
 
 library(ggplot2)
 
-ggplot(top_tfidf, aes(x = reorder(word, tf_idf), y = tf_idf)) +
+ggplot(top_tfidf, aes(x = reorder(word, tf_idf), y = tf_idf, fill = tf_idf)) +
   geom_col() +
   coord_flip() +
+  scale_fill_gradient(low = "#9ecae1", high = "#de2d26") +
   labs(
     title = "Top TF–IDF terms (Hespress – Culture)",
     x = NULL,
-    y = "TF–IDF score"
+    y = "TF–IDF score",
+    fill = "TF–IDF"
   ) +
   theme_minimal()
+
 
 ```
 
@@ -286,14 +359,22 @@ To test this hypothesis, we will will need:
 2.  **Institutional proximity measure per article**
 
 ```         
-binary (institutional vs not) or continuous (institutional term density)
+binary (institutional vs not) 
 ```
 
 3.  **Sentiment intensity** `abs(sentiment_score)`
 
 4.  A comparison: descriptive and regression (optional but good)
 
-Sentiment analysis was implemented in Python using the pre-trained **CAMeL-Lab Arabic BERT model for sentiment analysis** (bert-base-arabic-camelbert-da-sentiment) available on Hugging Face. Article texts were tokenized and processed through this transformer-based model to generate document-level sentiment classifications, leveraging Python’s NLP ecosystem for efficient handling of large-scale text. Once each article received a sentiment score and intensity, the resulting dataset of scores was exported (e.g., as CSV) and re-imported into RStudio. In RStudio, these sentiment scores were merged with the original corpus metadata, enabling further descriptive analysis, statistical modeling, and visualization alongside other text features.
+Sentiment analysis was implemented in Python using the pre-trained **CAMeL-Lab Arabic BERT model for sentiment analysis** (bert-base-arabic-camelbert-da-sentiment) available on Hugging Face.
+
+The base CAMeLBERT-DA model was pre-trained on a large corpus of dialectal Arabic web text, comprising approximately **54 GB of text (5.8 billion words)**. The sentiment analysis model does not introduce additional pre-training data, but instead fine-tunes this base model on manually annotated sentiment datasets (ASTD, ArSAS, SemEval), which include both dialectal and Modern Standard Arabic texts.
+
+While the authors provide detailed information on corpus size and language variant, the exact genre composition of the dialectal Arabic training data is not exhaustively specified.
+
+Article texts were tokenized and processed through this transformer-based model to generate document-level sentiment classifications, leveraging Python’s NLP ecosystem for efficient handling of large-scale text. Once each article received a sentiment score and intensity, the resulting dataset of scores was exported (e.g., as CSV) and re-imported into RStudio. In RStudio, these sentiment scores were merged with the original corpus metadata, enabling further descriptive analysis, statistical modeling, and visualization alongside other text features.
+
+The sentiment model outputs probabilities over discrete sentiment classes (positive, negative, neutral). These probabilities are transformed into a continuous sentiment score defined as the difference between the predicted probability of positive sentiment and negative sentiment. Positive values indicate a positive tone, negative values indicate a negative tone, and values close to zero indicate neutrality or balance. Sentiment intensity is defined as the absolute value of this score and reflects the strength of sentiment regardless of direction.
 
 ```{r}
 #we load the dataset with only the culture category to use it in python
@@ -324,7 +405,7 @@ inst_terms <- c(
 
   # public agencies / official bodies (common)
   "المندوبية","المفوضية","الهيئة","المجلس الوطني","المجلس الأعلى","مؤسسة عمومية","الوكالة","المرصد","اللجنة","اللجان",
-  "وزارة الثقافة","وزارة التربية","وزارة التعليم","وزارة الصحة","وزارة الداخلية",
+  "وزارة الثقافة","مؤسسة ","وزارة التربية","وزارة التعليم","وزارة الصحة","وزارة الداخلية",
 
   # official discourse markers
   "بلاغ","بيان","تصريح رسمي","مصدر رسمي","وفق\\s+بلاغ","حسب\\s+بلاغ","أفاد\\s+بلاغ",
@@ -341,12 +422,12 @@ inst_regex <- str_c(inst_terms, collapse = "|")
 ```{r}
 # Build a single text field by concatenating Title + Body (handling missing values),
 # then count how many institutional keywords appear (inst_hits),
-# and flag the article as "institutional" if it contains at least one hit.
+# and flag the article as "institutional" if it contains at least 2 hits.
 hespress_culture <- hespress_culture %>%
   mutate(
-    text_all = str_c(coalesce(Title, ""), " ", coalesce(Body, "")),
-    inst_hits = str_count(text_all, inst_regex),
-    institutional_article = inst_hits > 0
+    Body = str_c(coalesce(Title, ""), " ", coalesce(Body, "")),
+    inst_hits = str_count(Body, inst_regex),
+    institutional_article = inst_hits >= 2
   )
 
 ```
@@ -359,51 +440,35 @@ summary(hespress_culture$inst_hits)
 
 ```
 
-So, **a majority of Hespress culture articles contain at least one institutional keyword** (i.e., they get flagged as “institutional” by your dictionary rule). That supports the idea that *institutional language is common* even in the culture section.
+Articles are classified as institutional if they contain **at least two institutional keyword occurrences**, which is intended to capture sustained rather than incidental institutional language. Under this definition, 3,168 articles are flagged as institutional, while 4,641 articles contain zero or one institutional keyword and are classified as non-institutional.
 
--   A lot of articles have **0 hits** (consistent with the 3,233 FALSE). Among the rest, the typical institutional article has **low counts**: the median is **1** and 75% of articles have **≤ 2** hits.The **mean (\~2)** is higher than the median because there’s a **right tail**: a smaller number of articles have **many hits**, including one extreme case with **68**. That likely reflects either: a very institution-heavy piece (policy/education/cultural administration), or repeated mentions of the same term / name / entity.
+Institutional keyword counts are generally low across the corpus. The median number of hits is one, and 75% of articles contain three or fewer institutional keywords, indicating that most cultural articles either do not reference institutions or do so only minimally. The mean count (≈2.18) exceeds the median due to a strongly right-skewed distribution driven by a small number of articles with many institutional references, with extreme cases reaching up to 69 hits. Overall, this pattern suggests that sustained institutional framing is present in a substantial minority of articles but is not the dominant mode of discourse in cultural reporting.
 
 ```{r}
-# Compute article length (approx. word count), then calculate institutional keyword density
-# as hits per 1,000 words (to normalize for article length).
-hespress_culture <- hespress_culture %>%
-  mutate(
-    n_words = str_count(text_all, "\\S+"),
-    institutional_density = ifelse(n_words > 0, inst_hits / n_words * 1000, 0)  # per 1,000 words
-  )
+boxplot(
+  hespress_culture$inst_hits,
+  main = "Distribution of Institutional Keyword Counts",
+  ylab = "Number of institutional keyword hits",
+  col = "lightgray"
+)
 
 ```
 
+The institutional keyword count is highly skewed and concentrated near zero, with a small number of extreme outliers, making a continuous specification unstable and difficult to interpret. Most observations are concentrated at very low values, with the median close to one institutional keyword and a narrow interquartile range near zero. In contrast, a small number of articles display exceptionally high counts, producing a long right tail with extreme outliers.
+
 ```{r}
-summary(hespress_culture$institutional_density)
+boxplot(
+  log1p(hespress_culture$inst_hits),
+  main = "Log-Scaled Institutional Keyword Counts",
+  ylab = "log(1 + institutional hits)",
+  col = "lightgray"
+)
 
 ```
 
-The institutional density ranges from **0 to 72.7 institutional terms per 1,000 words**, with a **median of 2.51** and a **mean of 6.01**. The large gap between the median and the mean indicates a **strong right-skewed distribution**: most cultural articles contain **very few institutional references**, while a smaller subset is **highly saturated with institutional language**. The first quartile at **0** confirms that at least 25% of articles contain no institutional keywords at all.
+While institutional keyword counts are highly concentrated near zero, this feature of the data motivates rather than undermines the use of a binary indicator, which captures the presence of sustained institutional language without relying on fragile continuous variation.
 
-```{r}
-med_inst <- median(hespress_culture$institutional_density, na.rm = TRUE)
-
-hespress_culture <- hespress_culture %>%
-  mutate(
-    institutional_high = institutional_density > med_inst
-  )
-
-table(hespress_culture$institutional_high)
-```
-
-Using the median as a cutoff yields a nearly **perfectly balanced split** between articles with **low institutional density (3,907)** and **high institutional density (3,902)**. This median-based dichotomization ensures comparability between groups and avoids bias introduced by extreme values. Substantively, it allows you to contrast cultural articles that are relatively **institution-light** with those that are more **institutionally inflected**, while keeping sample sizes symmetrical for downstream analysis.
-
-```{r}
-hespress_culture %>%
-  filter(institutional_article) %>%
-  select(doc_id, Title, inst_hits, institutional_density) %>%
-  arrange(desc(inst_hits)) %>%
-  slice_head(n = 10)
-
-```
-
-This table shows the ten cultural articles with the highest number of institutional keyword occurrences. These articles exhibit exceptionally high institutional saturation, with **29 to 68 institutional hits** and densities ranging from **about 21 to nearly 60 terms per 1,000 words**. Compared to the corpus median (2.5 per 1,000 words), these cases represent clear outliers, indicating that a small subset of cultural articles is heavily structured around institutional or formal language. This confirms that while most cultural reporting contains few institutional references, institutional framing can become dominant in specific articles.
+**Merging the datasets**
 
 Now, back to reuploading our ready to go sentiment analysis dataset.
 
@@ -411,8 +476,10 @@ Now, back to reuploading our ready to go sentiment analysis dataset.
 library(dplyr)
 library(readr)
 
-sentiment_df <- read_csv("hespress_sentiment_transformer.csv")
-
+sentiment_df <- read_csv(
+  "hespress_sentiment_transformer.csv",
+  show_col_types = FALSE
+)
 View(sentiment_df)
 ```
 
@@ -429,9 +496,35 @@ sum(is.na(hespress_culture$sentiment_score))
 
 ```
 
-#### **Quick descriptive check: Binary institutional and density proxy**
+-   Intepretation
 
-A\) Binary institutional proxy
+-   **No missing values**: the NA count is 0, so sentiment scores are available for all articles.
+
+-   The sentiment score spans almost the full theoretical range, from **−0.997 to +0.996**, indicating that the model assigns both strongly negative and strongly positive sentiment to some articles.
+
+-   The **median is exactly 0**, which suggests that the typical cultural article is sentimentally neutral, or that positive and negative sentiment probabilities are closely balanced for most texts.
+
+-   The **mean is slightly positive (≈ 0.04)**, indicating a small overall tilt toward positive sentiment across the corpus, though the magnitude is modest.
+
+-   The interquartile range (from about −0.36 to +0.46) shows that the middle 50% of articles exhibit mild sentiment, with relatively few extreme values.
+
+Overall, this distribution suggests that Hespress culture articles are predominantly neutral in tone, with limited polarization and only a small subset exhibiting strong positive or negative sentiment.
+
+```{r}
+hist(
+  hespress_culture$sentiment_score,
+  breaks = 40,
+  main = "Distribution of Sentiment Scores",
+  xlab = "Sentiment score"
+)
+
+```
+
+The distribution of sentiment scores is highly concentrated around zero, with a large mass of neutral observations and relatively fewer strongly positive or negative cases. This non-normal, bounded distribution is consistent with the construction of the sentiment measure and reflects the predominantly neutral tone of cultural reporting.
+
+Because the sentiment score is bounded and derived from class probabilities, departures from normality are expected and do not invalidate linear modeling of conditional mean differences.
+
+#### **Quick descriptive check**
 
 ```{r}
 hespress_culture %>%
@@ -444,27 +537,47 @@ hespress_culture %>%
 
 ```
 
-Cultural articles that contain at least one institutional keyword have, on average, **lower sentiment scores** than those without institutional references. Non-institutional articles show a slightly positive mean sentiment, while institutional articles cluster closer to neutral, with similar levels of dispersion across both groups.
+We first split the Hespress culture articles into two groups using the binary institutional proxy (`institutional_article`). Articles coded **FALSE** are those with **0–1 institutional keyword hits** (i.e., institution-light or only incidental mentions). Articles coded **TRUE** are those with **≥ 2 institutional keyword hits**, which we treat as indicating **sustained institutional language**.
 
-B\) Density proxy (binned view)
+Next, we computed the **mean sentiment score**, the **standard deviation**, and the **number of observations** in each group. The institution-light group (**FALSE**) contains **4,641** articles and has an average sentiment score of **0.086** (SD = **0.551**), suggesting a slightly positive tone on average. The institution-heavy group (**TRUE**) contains **3,168** articles and has a lower average sentiment score of **−0.019** (SD = **0.529**), indicating a more neutral-to-slightly negative tone.
+
+Overall, the descriptive comparison shows that articles with sustained institutional language have **lower average sentiment** than those with minimal institutional references (a raw mean difference of roughly **0.10** points), even before introducing controls such as article length.
 
 ```{r}
-hespress_culture %>%
-  mutate(inst_bin = ntile(institutional_density, 5)) %>%
-  group_by(inst_bin) %>%
-  summarise(
-    mean_sentiment = mean(sentiment_score, na.rm = TRUE),
-    n = n()
-  )
+library(ggplot2)
+
+ggplot(hespress_culture,
+       aes(x = institutional_article,
+           y = sentiment_score,
+           fill = institutional_article)) +
+  geom_violin(alpha = 0.6) +
+  geom_boxplot(width = 0.15, outlier.shape = NA, fill = "white") +
+  scale_x_discrete(
+    labels = c("0–1 institutional hits", "≥ 2 institutional hits")
+  ) +
+  scale_fill_manual(
+    values = c("FALSE" = "#B0C4DE", "TRUE" = "#4682B4")
+  ) +
+  labs(
+    title = "Distribution of Sentiment by Institutional Framing",
+    x = "Institutional framing",
+    y = "Sentiment score"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
 
 
 ```
 
-When institutional density is divided into five bins, average sentiment shows a **gradual shift toward neutrality** as institutional language becomes more dense. Articles in the lowest-density bin exhibit the most positive mean sentiment, while higher-density bins display progressively lower average sentiment scores, clustering around zero. Sample sizes are balanced across bins, indicating that this pattern is not driven by unequal group sizes.
+This figure presents a violin plot with embedded boxplots showing the distribution of sentiment scores for institution-light and institution-heavy articles. Descriptively, sentiment distributions overlap substantially across institutional and non-institutional articles, although institutional articles exhibit a slight downward shift toward neutrality.
+
+Conclusion: Taken together, the initial descriptive analyses provide **limited but directionally consistent support** for the hypothesis. While the sentiment distributions of institution-light and institution-heavy articles overlap substantially, articles containing sustained institutional language exhibit **slightly lower average sentiment scores** and a modest shift toward neutrality. The absence of a pronounced visual separation suggests that any association between institutional framing and sentiment is **small in magnitude**, but the consistent downward shift in central tendency motivates further analysis. Accordingly, regression models are required to assess whether this relationship persists once controlling for article length and potentially other confounding factors.
+
+### **Testing H1**
 
 #### T-tests and Linear Model
 
-A Welch two-sample t-test indicates a statistically significant difference in average sentiment between institutional and non-institutional culture articles (t = 10.08, p \< .001). Non-institutional articles display a slightly more positive mean sentiment (M = 0.12) than institutional articles (M ≈ 0). However, the magnitude of this difference is small, suggesting that institutionalization primarily corresponds to a neutralization of tone rather than a strong shift toward negative sentiment.
+A Welch two-sample t-test indicates a statistically significant difference in mean sentiment between institution-light and institution-heavy culture articles (t = 8.53, df = 6987.2, p \< 2.2×10⁻¹⁶). Institution-light articles (0–1 institutional hits) have a higher mean sentiment (M = 0.086) than institution-heavy articles (≥2 hits; M = −0.019). The estimated mean difference (M_FALSE − M_TRUE) is 0.106, with a 95% confidence interval of \[0.081, 0.130\], indicating a small but reliably positive difference in average sentiment. Because this comparison is bivariate, subsequent regression models are used to assess whether the association persists after controlling for article length.
 
 ```{r}
 t.test(
@@ -476,15 +589,13 @@ t.test(
 
 **Regression**
 
-A linear regression of article-level sentiment scores on institutional density reveals a **negative and statistically significant association** between the two variables (β = −0.0031, *p* \< .001). Substantively, this coefficient indicates that an increase of one institutional reference per 1,000 words is associated with a **very small decrease in predicted sentiment**, implying that articles with denser institutional language tend to express sentiment closer to neutrality. The positive intercept (β ≈ 0.062) suggests that, in the absence of institutional references, cultural articles exhibit mildly positive average sentiment.
+We estimate a linear regression model in which sentiment is regressed on institutional framing, controlling for article length. Article length is included to account for differences in textual verbosity that may mechanically affect sentiment scores.
 
-Despite statistical significance, the **magnitude of the effect is limited**. The model explains less than **0.3% of the total variance** in sentiment scores (R² ≈ 0.003), indicating that institutional density accounts for only a small fraction of sentiment variation across articles. This low explanatory power is consistent with earlier descriptive results showing substantial overlap in sentiment distributions across institutional-density categories.
-
-Taken together, the findings suggest that institutional framing in cultural reporting is associated with **subtle stylistic shifts toward neutral tone**, rather than pronounced changes in emotional valence. The relationship appears gradual and monotonic, aligning with the binned and binary analyses, but should be interpreted as a **weak association** reflecting differences in register and framing rather than strong affective content. As such, institutional density functions as a modest stylistic correlate of sentiment rather than a primary driver of emotional expression in cultural articles.
+Article length is included as a control variable because longer texts tend to exhibit lower sentiment scores, both mechanically and substantively. Mechanically, longer articles contain a higher proportion of neutral and informational language, which dilutes emotionally valenced content and pulls sentiment scores toward zero. Substantively, institutional density is itself correlated with article length, as institutionally framed articles typically provide more background and procedural detail. Controlling for article length therefore allows the effect of institutional density on sentiment to be interpreted independently of differences in text length.
 
 ```{r}
 model1 <- lm(
-  sentiment_score ~ institutional_density,
+  sentiment_score ~ institutional_article + n_words,
   data = hespress_culture
 )
 
@@ -492,45 +603,110 @@ summary(model1)
 
 ```
 
-When controlling for article length, institutional density remains negatively associated with sentiment (β = −0.005, p \< .001). Longer articles are themselves associated with lower sentiment scores (β = −0.0005, p \< .001), reflecting the accumulation of neutral and informational language. Importantly, the effect of institutional density persists net of article length, suggesting that institutional framing contributes to sentiment neutralization beyond differences in text length. The inclusion of this control substantially improves model fit (R² = 0.066), though the overall explanatory power remains modest.
+Interpretation here
+
+**Assumption checks**
+
+Normality of residuals
+
+Histogram of residuals
+
+The shape is **not bell-shaped** in a classical Gaussian sense. The histogram shows residuals centered around zero with a strong concentration near neutrality and bounded tails. While the distribution departs from perfect normality, this pattern is expected given the bounded and discretized nature of the sentiment score and the large sample size.
 
 ```{r}
-model2 <- lm(
-  sentiment_score ~ institutional_density + n_words,
-  data = hespress_culture
+hist(
+  resid(model1),
+  breaks = 40,
+  main = "Histogram of Regression Residuals",
+  xlab = "Residuals"
 )
 
-summary(model2)
+```
+
+Q–Q plot
+
+```{r}
+qqnorm(resid(model1))
+qqline(resid(model1), col = "red")
 
 ```
 
-```{r}
-library(ggplot2)
+The Q–Q plot indicates approximate normality in the central portion of the residual distribution, with deviations in the tails, which is expected given the bounded sentiment outcome and large sample size.
 
-ggplot(hespress_culture, aes(x = institutional_density, y = sentiment_score)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm", se = TRUE, color = "black") +
-  labs(
-    title = "Institutional alignment and sentiment tone in cultural articles",
-    x = "Institutional density (mentions per 1,000 words)",
-    y = "Sentiment score"
-  ) +
-  theme_minimal()
+The S-shaped curve indicates **non-normal tails**.
+
+### Homoskedasticity (constant variance)
+
+### Residuals vs fitted values plot 
+
+```{r}
+plot(
+  fitted(model1),
+  resid(model1),
+  xlab = "Fitted values",
+  ylab = "Residuals",
+  main = "Residuals vs Fitted Values"
+)
+abline(h = 0, col = "red")
 
 ```
 
-## Hypothesis 2
+\
+Is the variance of residuals similar across the two groups? Do institutional and non-institutional articles show similar dispersion around their group mean?
+
+A residuals-versus-fitted plot shows two vertical bands corresponding to the binary predictor, with residuals centered around zero and comparable dispersion across groups, suggesting no major violation of the homoskedasticity assumption.
 
 ```{r}
-# Load libraries (or packages):
-library(tidyverse) 
+library(lmtest)
+bptest(model1)
+
+```
+
+**A Breusch–Pagan test was conducted as a robustness check; results are interpreted cautiously given the large sample size.**
+
+A Breusch–Pagan test indicates heteroskedasticity in the residuals (BP = 11.32, p \< .001). Accordingly, all regression results are reported with heteroskedasticity-robust standard errors.
+
+```{r}
+library(sandwich)
+library(lmtest)
+
+coeftest(model1, vcov = vcovHC(model1, type = "HC1"))
+
+```
+
+## Linearity
+
+Because your main predictor is binary, linearity is **mostly trivial**,
+
+```{r}
+library(stringr)
 library(dplyr)
 
-#Load the datasets:
-hespress <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Hespress.ma.csv")
-akhbarona <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Akhbarona.ma.csv")
+hespress_culture <- hespress_culture %>%
+  mutate(
+    Body = str_c(coalesce(Title, ""), " ", coalesce(Body, "")),
+    n_words = str_count(Body, "\\S+")
+  )
 
-hibapress <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Hibapress.com.csv")
-
-le360 <- read.csv("~/DAT505/Semester assignment/Hespress.ma.csv/Le360.com.csv")
 ```
+
+```{r}
+# Keep only rows with complete data for the variables used in model1
+keep <- complete.cases(hespress_culture[, c("sentiment_score", "institutional_article", "n_words")])
+
+x <- hespress_culture$n_words[keep]
+y <- resid(model1)[keep]   # aligned to the same rows
+
+plot(
+  x, y,
+  xlab = "Article length (words)",
+  ylab = "Residuals",
+  main = "Residuals vs Article Length"
+)
+abline(h = 0, col = "red")
+
+```
+
+## Independence
+
+There is **no statistical test** here. Articles are treated as independent observations.
